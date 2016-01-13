@@ -8,6 +8,8 @@ ifeq ($(OS), Darwin)
 	FLAGS =-DHAVE_BIRTHTIME
 else ifeq ($(OS), FreeBSD)
 	FLAGS =-DHAVE_BIRTHTIME
+else
+	FLAGS =-D_GNU_SOURCE
 endif
 
 all: gitts
