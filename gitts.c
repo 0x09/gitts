@@ -28,6 +28,7 @@
 #include <limits.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <errno.h>
 
 #include <git2.h>
 #include <sqlite3.h>
@@ -151,11 +152,27 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(ctx.action == TS_INIT) {
+		char* hookspath;
+		git_config* cfg = NULL;
+		git_buf out = {0};
+		if(!git_repository_config(&cfg, repo) && !git_config_get_path(&out, cfg, "core.hooksPath"))
+			asprintf(&hookspath, "%s", out.ptr);
+		else
+			asprintf(&hookspath, "%shooks", git_repository_path(repo));
+		git_buf_dispose(&out);
+		git_config_free(cfg);
+
 		const static char* hooks[3][2] = {{"commit","store"},{"checkout","apply"},{"merge","merge"}};
 		for(int i = 0; i < 3; i++) {
 			char* hook;
-			asprintf(&hook,"%shooks/post-%s",git_repository_path(repo),hooks[i][0]);
+			asprintf(&hook, "%s/post-%s", hookspath, hooks[i][0]);
 			FILE* f = fopen(hook,"w");
+			if(!f) {
+				fprintf(stderr, "gitts: %s: %s\n", hook, strerror(errno));
+				free(hook);
+				ret = 1;
+				break;
+			}
 			fprintf(f,"#!/bin/sh\ngitts %s\n",hooks[i][1]);
 			fclose(f);
 			struct stat st;
@@ -163,6 +180,7 @@ int main(int argc, char* argv[]) {
 			chmod(hook,st.st_mode|S_IXUSR|S_IXGRP|S_IXOTH);
 			free(hook);
 		}
+		free(hookspath);
 	}
 	else {
 		int stmts = 0;
@@ -188,5 +206,5 @@ int main(int argc, char* argv[]) {
 	}
 	sqlite3_close(ctx.db);
 	free(dbloc);
-	return 0;
+	return ret;
 }
