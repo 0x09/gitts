@@ -192,12 +192,15 @@ int main(int argc, char* argv[]) {
 			sqlite3_prepare_v2(ctx.db, "INSERT OR IGNORE INTO timestamps VALUES(?,?,?)", -1, ctx.stmt+stmts++, NULL);
 
 		git_reference* head;
-		git_tree* tree;
-		git_repository_head(&head, repo);
-		git_commit_lookup(&ctx.commit, repo, git_reference_target(head));
-		git_commit_tree(&tree, ctx.commit);
-
-		git_tree_walk(tree, GIT_TREEWALK_PRE, treewalk, &ctx);
+		git_tree* tree = NULL;
+		if((ret = git_repository_head(&head, repo)) ||
+		   (ret = git_commit_lookup(&ctx.commit, repo, git_reference_target(head))) ||
+		   (ret = git_commit_tree(&tree, ctx.commit))) {
+			const git_error* err = git_error_last();
+			fprintf(stderr, "%s (%d)\n", (err ? err->message : "Unknown error"), ret);
+		}
+		else
+			git_tree_walk(tree, GIT_TREEWALK_PRE, treewalk, &ctx);
 
 		git_tree_free(tree);
 		git_commit_free(ctx.commit);
