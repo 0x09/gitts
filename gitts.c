@@ -172,21 +172,15 @@ int main(int argc, char* argv[]) {
 			sqlite3_prepare_v2(ctx.db, "INSERT OR IGNORE INTO timestamps VALUES(?,?,?)", -1, ctx.stmt+stmts++, NULL);
 
 		git_reference* head;
-		git_repository_head(&head,repo);
-		git_reference* ref;
-		git_reference_resolve(&ref,head);
-		const git_oid* id = git_reference_target(ref);
-		git_object* obj;
-		git_object_lookup(&obj, repo, id, GIT_OBJ_COMMIT);
 		git_tree* tree;
-		ctx.commit = (git_commit*)obj;
+		git_repository_head(&head, repo);
+		git_commit_lookup(&ctx.commit, repo, git_reference_target(head));
 		git_commit_tree(&tree, ctx.commit);
 
 		git_tree_walk(tree, GIT_TREEWALK_PRE, treewalk, &ctx);
 
 		git_tree_free(tree);
-		git_object_free(obj);
-		git_reference_free(ref);
+		git_commit_free(ctx.commit);
 		git_reference_free(head);
 		git_repository_free(repo);
 		for(int i = 0; i < stmts; i++)
