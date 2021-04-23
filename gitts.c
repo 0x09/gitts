@@ -29,6 +29,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #include <git2.h>
 #include <sqlite3.h>
@@ -166,18 +167,19 @@ int main(int argc, char* argv[]) {
 		for(int i = 0; i < 3; i++) {
 			char* hook;
 			asprintf(&hook, "%s/post-%s", hookspath, hooks[i][0]);
-			FILE* f = fopen(hook,"w");
-			if(!f) {
-				fprintf(stderr, "gitts: %s: %s\n", hook, strerror(errno));
-				free(hook);
+			int fd = open(hook, O_CREAT|O_WRONLY|O_EXCL, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH|S_IXUSR|S_IXGRP|S_IXOTH);
+			if(fd < 0) {
+				if(errno == EEXIST)
+					fprintf(stderr, "gitts: hook already exists, not overwriting. If you haven't already, add \"gitts %s\" to %s\n", hooks[i][1], hook);
+				else
+					fprintf(stderr, "gitts: %s: %s\n", hook, strerror(errno));
 				ret = 1;
-				break;
 			}
-			fprintf(f,"#!/bin/sh\ngitts %s\n",hooks[i][1]);
-			fclose(f);
-			struct stat st;
-			stat(hook,&st);
-			chmod(hook,st.st_mode|S_IXUSR|S_IXGRP|S_IXOTH);
+			else {
+				FILE* f = fdopen(fd, "w");
+				fprintf(f,"#!/bin/sh\ngitts %s\n",hooks[i][1]);
+				fclose(f);
+			}
 			free(hook);
 		}
 		free(hookspath);
