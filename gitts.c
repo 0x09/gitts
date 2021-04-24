@@ -141,7 +141,7 @@ int main(int argc, char* argv[]) {
 	if(ret < 0) {
 		const git_error* err = git_error_last();
 		fprintf(stderr,"%s (%d)\n",(err ? err->message : "Unknown error"),ret);
-		return ret;
+		return 1;
 	}
 
 	char* dbloc;
@@ -211,5 +211,5 @@ int main(int argc, char* argv[]) {
 	}
 	sqlite3_close(ctx.db);
 	free(dbloc);
-	return ret;
+	return !!ret;
 }
