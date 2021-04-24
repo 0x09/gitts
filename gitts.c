@@ -139,7 +139,7 @@ int main(int argc, char* argv[]) {
 	git_repository* repo;
 	int ret = git_repository_open(&repo, ctx.path);
 	if(ret < 0) {
-		const git_error* err = giterr_last();
+		const git_error* err = git_error_last();
 		fprintf(stderr,"%s (%d)\n",(err ? err->message : "Unknown error"),ret);
 		return ret;
 	}
