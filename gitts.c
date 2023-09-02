@@ -34,12 +34,6 @@
 #include <git2.h>
 #include <sqlite3.h>
 
-#if HAVE_BIRTHTIME
-#define BTIME_OR_ZERO(st) ((st).st_birthtime)
-#else
-#define BTIME_OR_ZERO(st) (0)
-#endif
-
 enum tsaction {
 	TS_STORE,
 	TS_APPLY,
@@ -65,14 +59,20 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 	if(ctx->action == TS_STORE) {
 		struct stat st;
 		stat(path,&st);
-		sqlite3_bind_int64(*ctx->stmt, 2, BTIME_OR_ZERO(st));
+#if HAVE_BIRTHTIME
+		sqlite3_bind_int64(*ctx->stmt, 2, st.st_birthtime);
+#endif
 		sqlite3_bind_int64(*ctx->stmt, 3, st.st_mtime);
 		sqlite3_step(*ctx->stmt);
 	}
 	else if(ctx->action == TS_APPLY && sqlite3_step(*ctx->stmt) == SQLITE_ROW) {
-		time_t birthtime = sqlite3_column_int64(*ctx->stmt, 0);
+#if HAVE_BIRTHTIME
+		if(sqlite3_column_type(*ctx->stmt, 0) != SQLITE_NULL) {
+			time_t birthtime = sqlite3_column_int64(*ctx->stmt, 0);
+			utimes(path, (struct timeval[2]){{0},{birthtime}});
+		}
+#endif
 		time_t mtime = sqlite3_column_int64(*ctx->stmt, 1);
-		utimes(path, (struct timeval[2]){{0},{birthtime}});
 		utimes(path, (struct timeval[2]){{time(NULL)},{mtime}});
 	}
 #if HAVE_BIRTHTIME
