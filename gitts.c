@@ -34,6 +34,12 @@
 #include <git2.h>
 #include <sqlite3.h>
 
+#ifdef __APPLE__
+#define stat_nanosec(st,time) ((st).st_ ## time ## timespec.tv_nsec)
+#else
+#define stat_nanosec(st,time) ((st).st_ ## time ## tim.tv_nsec)
+#endif
+
 enum tsaction {
 	TS_STORE,
 	TS_APPLY,
@@ -61,23 +67,25 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 		stat(path,&st);
 #if HAVE_BIRTHTIME
 		sqlite3_bind_int64(*ctx->stmt, 2, st.st_birthtime);
+		sqlite3_bind_int64(*ctx->stmt, 4, stat_nanosec(st,birth));
 #endif
 		sqlite3_bind_int64(*ctx->stmt, 3, st.st_mtime);
+		sqlite3_bind_int64(*ctx->stmt, 5, stat_nanosec(st,m));
 		sqlite3_step(*ctx->stmt);
 	}
 	else if(ctx->action == TS_APPLY && sqlite3_step(*ctx->stmt) == SQLITE_ROW) {
 #if HAVE_BIRTHTIME
 		if(sqlite3_column_type(*ctx->stmt, 0) != SQLITE_NULL) {
-			time_t birthtime = sqlite3_column_int64(*ctx->stmt, 0);
-			utimes(path, (struct timeval[2]){{0},{birthtime}});
+			struct timespec birthtime = { sqlite3_column_int64(*ctx->stmt, 0), sqlite3_column_int64(*ctx->stmt, 2) };
+			utimensat(AT_FDCWD, path, (struct timespec[2]){{0,UTIME_OMIT},birthtime}, AT_SYMLINK_NOFOLLOW);
 		}
 #endif
-		time_t mtime = sqlite3_column_int64(*ctx->stmt, 1);
-		utimes(path, (struct timeval[2]){{time(NULL)},{mtime}});
+		struct timespec mtime = { sqlite3_column_int64(*ctx->stmt, 1), sqlite3_column_int64(*ctx->stmt, 3) };
+		utimensat(AT_FDCWD, path, (struct timespec[2]){{0,UTIME_NOW},mtime}, AT_SYMLINK_NOFOLLOW);
 	}
 #if HAVE_BIRTHTIME
 	else if(ctx->action == TS_MERGE && sqlite3_step(*ctx->stmt) == SQLITE_DONE) {
-		time_t leastbirthtime = LONG_MAX;
+		struct timespec leastbirthtime = {LONG_MAX,LONG_MAX};
 		unsigned int parents = git_commit_parentcount(ctx->commit);
 		git_commit* parent;
 		const char* localpath = path + strlen(ctx->path) + 1;
@@ -90,8 +98,8 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 				sqlite3_reset(*ctx->stmt);
 				sqlite3_bind_blob(*ctx->stmt, 1, git_tree_entry_id(pentry), GIT_OID_RAWSZ, SQLITE_TRANSIENT);
 				if(sqlite3_step(*ctx->stmt) == SQLITE_ROW) {
-					time_t birthtime = sqlite3_column_int64(*ctx->stmt, 0);
-					if(birthtime < leastbirthtime)
+					struct timespec birthtime = { sqlite3_column_int64(*ctx->stmt, 0), sqlite3_column_int64(*ctx->stmt, 2) };
+					if(birthtime.tv_sec < leastbirthtime.tv_sec || birthtime.tv_sec == leastbirthtime.tv_sec && birthtime.tv_nsec < leastbirthtime.tv_nsec)
 						leastbirthtime = birthtime;
 				}
 				git_tree_entry_free(pentry);
@@ -99,16 +107,18 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 			git_tree_free(tree);
 			git_commit_free(parent);
 		}
-		if(leastbirthtime < LONG_MAX) {
+		if(leastbirthtime.tv_nsec < LONG_MAX) {
 			struct stat st;
 			stat(path,&st);
 			sqlite3_bind_blob(ctx->stmt[1], 1, git_tree_entry_id(entry), GIT_OID_RAWSZ, SQLITE_TRANSIENT);
-			sqlite3_bind_int64(ctx->stmt[1], 2, leastbirthtime);
+			sqlite3_bind_int64(ctx->stmt[1], 2, leastbirthtime.tv_sec);
 			sqlite3_bind_int64(ctx->stmt[1], 3, st.st_mtime);
+			sqlite3_bind_int64(ctx->stmt[1], 4, leastbirthtime.tv_nsec);
+			sqlite3_bind_int64(ctx->stmt[1], 5, stat_nanosec(st,m));
 			sqlite3_step(ctx->stmt[1]);
 			sqlite3_reset(ctx->stmt[1]);
-			utimes(path, (struct timeval[2]){{0},{leastbirthtime}});
-			utimes(path, (struct timeval[2]){{time(NULL)},{st.st_mtime}});
+			utimensat(AT_FDCWD, path, (struct timespec[2]){{0,UTIME_OMIT},leastbirthtime}, AT_SYMLINK_NOFOLLOW);
+			utimensat(AT_FDCWD, path, (struct timespec[2]){{0,UTIME_NOW},{st.st_mtime, stat_nanosec(st,m)}}, AT_SYMLINK_NOFOLLOW);
 		}
 	}
 #endif
@@ -149,8 +159,12 @@ int main(int argc, char* argv[]) {
 
 	if(ctx.action == TS_INIT || sqlite3_open_v2(dbloc, &ctx.db, SQLITE_OPEN_READWRITE, NULL)) {
 		sqlite3_open_v2(dbloc, &ctx.db, SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE, NULL);
-		sqlite3_exec(ctx.db,"CREATE TABLE timestamps (id BLOB PRIMARY KEY, birthtime INTEGER, mtime INTEGER);",NULL,NULL,NULL);
+		sqlite3_exec(ctx.db,"CREATE TABLE timestamps (id BLOB PRIMARY KEY, birthtime INTEGER, mtime INTEGER, birthtime_nsec INTEGER, mtime_nsec INTEGER);",NULL,NULL,NULL);
 	}
+#ifndef GITTS_SKIP_NANOSECOND_SCHEMA_CHECK
+	else if(sqlite3_table_column_metadata(ctx.db,NULL,"timestamps","mtime_nsec",NULL,NULL,NULL,NULL,NULL)) // add nanosecond timestamps to old dbs
+		sqlite3_exec(ctx.db,"ALTER TABLE timestamps ADD birthtime_nsec INTEGER; ALTER TABLE timestamps ADD mtime_nsec INTEGER;",NULL,NULL,NULL);
+#endif
 
 	if(ctx.action == TS_INIT) {
 		char* hookspath;
@@ -187,9 +201,9 @@ int main(int argc, char* argv[]) {
 	else {
 		int stmts = 0;
 		if(ctx.action == TS_APPLY || ctx.action == TS_MERGE)
-			sqlite3_prepare_v2(ctx.db, "SELECT birthtime,mtime FROM timestamps WHERE id = ?", -1, ctx.stmt+stmts++, NULL);
+			sqlite3_prepare_v2(ctx.db, "SELECT birthtime,mtime,birthtime_nsec,mtime_nsec FROM timestamps WHERE id = ?", -1, ctx.stmt+stmts++, NULL);
 		if(ctx.action == TS_STORE || ctx.action == TS_MERGE)
-			sqlite3_prepare_v2(ctx.db, "INSERT OR IGNORE INTO timestamps VALUES(?,?,?)", -1, ctx.stmt+stmts++, NULL);
+			sqlite3_prepare_v2(ctx.db, "INSERT OR IGNORE INTO timestamps VALUES(?,?,?,?,?)", -1, ctx.stmt+stmts++, NULL);
 
 		git_reference* head;
 		git_tree* tree = NULL;
