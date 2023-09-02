@@ -65,13 +65,13 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 	if(ctx->action == TS_STORE) {
 		struct stat st;
 		stat(path,&st);
-		sqlite3_bind_int(*ctx->stmt, 2, BTIME_OR_ZERO(st));
-		sqlite3_bind_int(*ctx->stmt, 3, st.st_mtime);
+		sqlite3_bind_int64(*ctx->stmt, 2, BTIME_OR_ZERO(st));
+		sqlite3_bind_int64(*ctx->stmt, 3, st.st_mtime);
 		sqlite3_step(*ctx->stmt);
 	}
 	else if(ctx->action == TS_APPLY && sqlite3_step(*ctx->stmt) == SQLITE_ROW) {
-		time_t birthtime = sqlite3_column_int(*ctx->stmt, 0);
-		time_t mtime = sqlite3_column_int(*ctx->stmt, 1);
+		time_t birthtime = sqlite3_column_int64(*ctx->stmt, 0);
+		time_t mtime = sqlite3_column_int64(*ctx->stmt, 1);
 		utimes(path, (struct timeval[2]){{0},{birthtime}});
 		utimes(path, (struct timeval[2]){{time(NULL)},{mtime}});
 	}
@@ -90,7 +90,7 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 				sqlite3_reset(*ctx->stmt);
 				sqlite3_bind_blob(*ctx->stmt, 1, git_tree_entry_id(pentry), GIT_OID_RAWSZ, SQLITE_TRANSIENT);
 				if(sqlite3_step(*ctx->stmt) == SQLITE_ROW) {
-					time_t birthtime = sqlite3_column_int(*ctx->stmt, 0);
+					time_t birthtime = sqlite3_column_int64(*ctx->stmt, 0);
 					if(birthtime < leastbirthtime)
 						leastbirthtime = birthtime;
 				}
@@ -103,8 +103,8 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 			struct stat st;
 			stat(path,&st);
 			sqlite3_bind_blob(ctx->stmt[1], 1, git_tree_entry_id(entry), GIT_OID_RAWSZ, SQLITE_TRANSIENT);
-			sqlite3_bind_int(ctx->stmt[1], 2, leastbirthtime);
-			sqlite3_bind_int(ctx->stmt[1], 3, st.st_mtime);
+			sqlite3_bind_int64(ctx->stmt[1], 2, leastbirthtime);
+			sqlite3_bind_int64(ctx->stmt[1], 3, st.st_mtime);
 			sqlite3_step(ctx->stmt[1]);
 			sqlite3_reset(ctx->stmt[1]);
 			utimes(path, (struct timeval[2]){{0},{leastbirthtime}});
