@@ -59,12 +59,18 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 	struct tscontext* ctx = payload;
 	char* path;
 	asprintf(&path,"%s/%s%s",ctx->path,root,git_tree_entry_name(entry));
+	const char* localpath = path + strlen(ctx->path) + 1;
+
+	struct stat st;
+	if(stat(path,&st)) {
+		perror("gitts");
+		free(path);
+		return 1;
+	}
 
 	sqlite3_bind_blob(*ctx->stmt, 1, git_tree_entry_id(entry)->id, GIT_OID_RAWSZ, SQLITE_TRANSIENT);
 
 	if(ctx->action == TS_STORE) {
-		struct stat st;
-		stat(path,&st);
 #if HAVE_BIRTHTIME
 		sqlite3_bind_int64(*ctx->stmt, 2, st.st_birthtime);
 		sqlite3_bind_int64(*ctx->stmt, 4, stat_nanosec(st,birth));
@@ -88,7 +94,6 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 		struct timespec leastbirthtime = {LONG_MAX,LONG_MAX};
 		unsigned int parents = git_commit_parentcount(ctx->commit);
 		git_commit* parent;
-		const char* localpath = path + strlen(ctx->path) + 1;
 		for(unsigned int i = 0; i < parents; i++) {
 			git_commit_parent(&parent, ctx->commit, i);
 			git_tree* tree;
@@ -108,8 +113,6 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 			git_commit_free(parent);
 		}
 		if(leastbirthtime.tv_nsec < LONG_MAX) {
-			struct stat st;
-			stat(path,&st);
 			sqlite3_bind_blob(ctx->stmt[1], 1, git_tree_entry_id(entry)->id, GIT_OID_RAWSZ, SQLITE_TRANSIENT);
 			sqlite3_bind_int64(ctx->stmt[1], 2, leastbirthtime.tv_sec);
 			sqlite3_bind_int64(ctx->stmt[1], 3, st.st_mtime);
