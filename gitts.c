@@ -86,7 +86,12 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 			utimensat(AT_FDCWD, path, (struct timespec[2]){{0,UTIME_OMIT},birthtime}, AT_SYMLINK_NOFOLLOW);
 		}
 #endif
-		struct timespec mtime = { sqlite3_column_int64(*ctx->stmt, 1), sqlite3_column_int64(*ctx->stmt, 3) };
+		unsigned int status;
+		struct timespec mtime;
+		if(!git_status_file(&status, git_commit_owner(ctx->commit), localpath) && status == GIT_STATUS_CURRENT)
+			mtime = (struct timespec){ sqlite3_column_int64(*ctx->stmt, 1), sqlite3_column_int64(*ctx->stmt, 3) };
+		else
+			mtime = (struct timespec){ st.st_mtime, stat_nanosec(st,m) };
 		utimensat(AT_FDCWD, path, (struct timespec[2]){{0,UTIME_NOW},mtime}, AT_SYMLINK_NOFOLLOW);
 	}
 #if HAVE_BIRTHTIME
