@@ -60,7 +60,7 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 	char* path;
 	asprintf(&path,"%s/%s%s",ctx->path,root,git_tree_entry_name(entry));
 
-	sqlite3_bind_blob(*ctx->stmt, 1, git_tree_entry_id(entry), GIT_OID_RAWSZ, SQLITE_TRANSIENT);
+	sqlite3_bind_blob(*ctx->stmt, 1, git_tree_entry_id(entry)->id, GIT_OID_RAWSZ, SQLITE_TRANSIENT);
 
 	if(ctx->action == TS_STORE) {
 		struct stat st;
@@ -96,7 +96,7 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 			git_tree_entry* pentry;
 			if(git_tree_entry_bypath(&pentry, tree, localpath) != GIT_ENOTFOUND) {
 				sqlite3_reset(*ctx->stmt);
-				sqlite3_bind_blob(*ctx->stmt, 1, git_tree_entry_id(pentry), GIT_OID_RAWSZ, SQLITE_TRANSIENT);
+				sqlite3_bind_blob(*ctx->stmt, 1, git_tree_entry_id(pentry)->id, GIT_OID_RAWSZ, SQLITE_TRANSIENT);
 				if(sqlite3_step(*ctx->stmt) == SQLITE_ROW) {
 					struct timespec birthtime = { sqlite3_column_int64(*ctx->stmt, 0), sqlite3_column_int64(*ctx->stmt, 2) };
 					if(birthtime.tv_sec < leastbirthtime.tv_sec || birthtime.tv_sec == leastbirthtime.tv_sec && birthtime.tv_nsec < leastbirthtime.tv_nsec)
@@ -110,7 +110,7 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 		if(leastbirthtime.tv_nsec < LONG_MAX) {
 			struct stat st;
 			stat(path,&st);
-			sqlite3_bind_blob(ctx->stmt[1], 1, git_tree_entry_id(entry), GIT_OID_RAWSZ, SQLITE_TRANSIENT);
+			sqlite3_bind_blob(ctx->stmt[1], 1, git_tree_entry_id(entry)->id, GIT_OID_RAWSZ, SQLITE_TRANSIENT);
 			sqlite3_bind_int64(ctx->stmt[1], 2, leastbirthtime.tv_sec);
 			sqlite3_bind_int64(ctx->stmt[1], 3, st.st_mtime);
 			sqlite3_bind_int64(ctx->stmt[1], 4, leastbirthtime.tv_nsec);
