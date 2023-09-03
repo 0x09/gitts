@@ -73,7 +73,7 @@ int treewalk(const char* root, const git_tree_entry* entry, void* payload) {
 		sqlite3_bind_int64(*ctx->stmt, 5, stat_nanosec(st,m));
 		sqlite3_step(*ctx->stmt);
 	}
-	else if(ctx->action == TS_APPLY && sqlite3_step(*ctx->stmt) == SQLITE_ROW) {
+	else if((ctx->action == TS_APPLY || ctx->action == TS_MERGE) && sqlite3_step(*ctx->stmt) == SQLITE_ROW) {
 #if HAVE_BIRTHTIME
 		if(sqlite3_column_type(*ctx->stmt, 0) != SQLITE_NULL) {
 			struct timespec birthtime = { sqlite3_column_int64(*ctx->stmt, 0), sqlite3_column_int64(*ctx->stmt, 2) };
